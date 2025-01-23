@@ -691,7 +691,7 @@ func (c *logsConsumerGroupHandler) Cleanup(session sarama.ConsumerGroupSession) 
 }
 
 func (c *logsConsumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	c.logger.Info("Starting consumer group", zap.Int32("partition", claim.Partition()))
+	c.logger.Info("Starting consumer group", zap.String("topic", claim.Topic()), zap.Int32("partition", claim.Partition()))
 	if !c.autocommitEnabled {
 		defer session.Commit()
 	}
@@ -702,9 +702,11 @@ func (c *logsConsumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSess
 				return nil
 			}
 			c.logger.Debug("Kafka message claimed",
+				zap.String("topic", message.Topic),
+				zap.Int32("partition", message.Partition),
+				zap.String("key", string(message.Key)),
 				zap.String("value", string(message.Value)),
-				zap.Time("timestamp", message.Timestamp),
-				zap.String("topic", message.Topic))
+				zap.Time("timestamp", message.Timestamp))
 			if !c.messageMarking.After {
 				session.MarkMessage(message, "")
 			}
