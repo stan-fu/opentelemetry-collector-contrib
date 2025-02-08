@@ -28,6 +28,7 @@ type TelemetryBuilder struct {
 	registrations                            []metric.Registration
 	KafkaReceiverCurrentOffset               metric.Int64Gauge
 	KafkaReceiverMessages                    metric.Int64Counter
+	KafkaReceiverMessageSize                 metric.Int64Histogram
 	KafkaReceiverOffsetLag                   metric.Int64Gauge
 	KafkaReceiverPartitionClose              metric.Int64Counter
 	KafkaReceiverPartitionStart              metric.Int64Counter
@@ -77,6 +78,11 @@ func NewTelemetryBuilder(settings component.TelemetrySettings, options ...Teleme
 		metric.WithUnit("1"),
 	)
 	errs = errors.Join(errs, err)
+	builder.KafkaReceiverMessageSize, err = builder.meter.Int64Histogram(
+		"otelcol_kafka_receiver_message_size",
+		metric.WithDescription("Size of received messages"),
+		metric.WithUnit("Byte"),
+	)
 	builder.KafkaReceiverOffsetLag, err = builder.meter.Int64Gauge(
 		"otelcol_kafka_receiver_offset_lag",
 		metric.WithDescription("Current offset lag"),

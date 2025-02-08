@@ -41,11 +41,11 @@ const (
 	// default from sarama.NewConfig()
 	defaultAutoCommitInterval = 1 * time.Second
 
-	// default from sarama.NewConfig()
+	// default minimum bytes per fetch from Kafka (default "1")
 	defaultMinFetchSize = int32(1)
-	// default from sarama.NewConfig()
+	// default bytes per fetch from Kafka (default "1048576")
 	defaultDefaultFetchSize = int32(1048576)
-	// default from sarama.NewConfig()
+	// default maximum bytes per fetch from Kafka (default "0", no limit)
 	defaultMaxFetchSize = int32(0)
 
 	defaultChannelBufferSize = 1024

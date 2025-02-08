@@ -564,6 +564,7 @@ func (c *tracesConsumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSe
 				attribute.String(attrPartition, strconv.Itoa(int(claim.Partition()))),
 			)
 			c.telemetryBuilder.KafkaReceiverMessages.Add(ctx, 1, metric.WithAttributeSet(attrs))
+			c.telemetryBuilder.KafkaReceiverMessageSize.Record(ctx, int64(len(message.Value)), metric.WithAttributeSet(attrs))
 			c.telemetryBuilder.KafkaReceiverCurrentOffset.Record(ctx, message.Offset, metric.WithAttributeSet(attrs))
 			c.telemetryBuilder.KafkaReceiverOffsetLag.Record(ctx, claim.HighWaterMarkOffset()-message.Offset-1, metric.WithAttributeSet(attrs))
 
@@ -641,6 +642,7 @@ func (c *metricsConsumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupS
 				attribute.String(attrPartition, strconv.Itoa(int(claim.Partition()))),
 			)
 			c.telemetryBuilder.KafkaReceiverMessages.Add(ctx, 1, metric.WithAttributeSet(attrs))
+			c.telemetryBuilder.KafkaReceiverMessageSize.Record(ctx, int64(len(message.Value)), metric.WithAttributeSet(attrs))
 			c.telemetryBuilder.KafkaReceiverCurrentOffset.Record(ctx, message.Offset, metric.WithAttributeSet(attrs))
 			c.telemetryBuilder.KafkaReceiverOffsetLag.Record(ctx, claim.HighWaterMarkOffset()-message.Offset-1, metric.WithAttributeSet(attrs))
 
@@ -732,6 +734,7 @@ func (c *logsConsumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSess
 				attribute.String(attrPartition, strconv.Itoa(int(claim.Partition()))),
 			)
 			c.telemetryBuilder.KafkaReceiverMessages.Add(ctx, 1, metric.WithAttributeSet(attrs))
+			c.telemetryBuilder.KafkaReceiverMessageSize.Record(ctx, int64(len(message.Value)), metric.WithAttributeSet(attrs))
 			c.telemetryBuilder.KafkaReceiverCurrentOffset.Record(ctx, message.Offset, metric.WithAttributeSet(attrs))
 			c.telemetryBuilder.KafkaReceiverOffsetLag.Record(ctx, claim.HighWaterMarkOffset()-message.Offset-1, metric.WithAttributeSet(attrs))
 

@@ -23,6 +23,12 @@ telemetry:
       sum:
         value_type: int
         monotonic: true
+    kafka_receiver_message_size:
+      enabled: true
+      description: Size of received messages
+      unit: "Byte"
+      histogram:
+        value_type: int
     kafka_receiver_current_offset:
       enabled: true
       description: Current message offset
