@@ -31,6 +31,7 @@ const (
 	// TODO: update the following attributes to reflect semconv
 	attrInstanceName = "name"
 	attrPartition    = "partition"
+	attrTopic        = "topic"
 )
 
 var errInvalidInitialOffset = errors.New("invalid initial offset")
@@ -687,6 +688,18 @@ func (c *logsConsumerGroupHandler) Setup(session sarama.ConsumerGroupSession) er
 
 func (c *logsConsumerGroupHandler) Cleanup(session sarama.ConsumerGroupSession) error {
 	c.telemetryBuilder.KafkaReceiverPartitionClose.Add(session.Context(), 1, metric.WithAttributes(attribute.String(attrInstanceName, c.id.String())))
+	ctx := session.Context()
+	for topic, partitions := range session.Claims() {
+		for _, partition := range partitions {
+			attrs := attribute.NewSet(
+				attribute.String(attrInstanceName, c.id.String()),
+				attribute.String(attrTopic, topic),
+				attribute.String(attrPartition, strconv.Itoa(int(partition))),
+			)
+			c.telemetryBuilder.KafkaReceiverCurrentOffset.Record(ctx, 0, metric.WithAttributeSet(attrs))
+			c.telemetryBuilder.KafkaReceiverOffsetLag.Record(ctx, 0, metric.WithAttributeSet(attrs))
+		}
+	}
 	return nil
 }
 

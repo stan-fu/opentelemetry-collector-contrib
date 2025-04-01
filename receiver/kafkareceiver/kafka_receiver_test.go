@@ -1192,7 +1192,7 @@ func (t testConsumerGroupSession) Commit() {
 var _ sarama.ConsumerGroupSession = (*testConsumerGroupSession)(nil)
 
 func (t testConsumerGroupSession) Claims() map[string][]int32 {
-	panic("implement me")
+	return nil
 }
 
 func (t testConsumerGroupSession) MemberID() string {
