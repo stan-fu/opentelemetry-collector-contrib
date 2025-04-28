@@ -47,6 +47,9 @@ const (
 	defaultDefaultFetchSize = int32(1048576)
 	// default from sarama.NewConfig()
 	defaultMaxFetchSize = int32(0)
+
+	defaultChannelBufferSize = 1024
+	defaultMaxProcessingTime = 512
 )
 
 var errUnrecognizedEncoding = errors.New("unrecognized encoding")
@@ -96,9 +99,11 @@ func createDefaultConfig() component.Config {
 		HeaderExtraction: HeaderExtraction{
 			ExtractHeaders: false,
 		},
-		MinFetchSize:     defaultMinFetchSize,
-		DefaultFetchSize: defaultDefaultFetchSize,
-		MaxFetchSize:     defaultMaxFetchSize,
+		MinFetchSize:      defaultMinFetchSize,
+		DefaultFetchSize:  defaultDefaultFetchSize,
+		MaxFetchSize:      defaultMaxFetchSize,
+		ChannelBufferSize: defaultChannelBufferSize,
+		MaxProcessingTime: defaultMaxProcessingTime,
 	}
 }
 

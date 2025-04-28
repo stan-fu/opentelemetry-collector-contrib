@@ -85,6 +85,10 @@ type Config struct {
 	DefaultFetchSize int32 `mapstructure:"default_fetch_size"`
 	// The maximum bytes per fetch from Kafka (default "0", no limit)
 	MaxFetchSize int32 `mapstructure:"max_fetch_size"`
+
+	// sarama.ConsumerConfig
+	ChannelBufferSize int           `mapstructure:"channel_buffer_size"`
+	MaxProcessingTime time.Duration `mapstructure:"max_processing_time"`
 }
 
 const (
