@@ -49,7 +49,7 @@ const (
 	defaultMaxFetchSize = int32(0)
 
 	defaultChannelBufferSize = 1024
-	defaultMaxProcessingTime = 512
+	defaultMaxProcessingTime = 512 * time.Millisecond
 )
 
 var errUnrecognizedEncoding = errors.New("unrecognized encoding")

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/IBM/sarama"
 	"go.opentelemetry.io/collector/component"
@@ -146,7 +145,7 @@ func createKafkaClient(ctx context.Context, config Config) (sarama.ConsumerGroup
 	saramaConfig.Consumer.Fetch.Default = config.DefaultFetchSize
 	saramaConfig.Consumer.Fetch.Max = config.MaxFetchSize
 	saramaConfig.ChannelBufferSize = config.ChannelBufferSize
-	saramaConfig.Consumer.MaxProcessingTime = config.MaxProcessingTime * time.Millisecond
+	saramaConfig.Consumer.MaxProcessingTime = config.MaxProcessingTime
 
 	var err error
 	if saramaConfig.Consumer.Offsets.Initial, err = toSaramaInitialOffset(config.InitialOffset); err != nil {
