@@ -67,6 +67,7 @@ func TestLoadConfig(t *testing.T) {
 				MaxFetchSize:      0,
 				ChannelBufferSize: 1024,
 				MaxProcessingTime: 512 * time.Millisecond,
+				CleanupTimeout:    5 * time.Second,
 			},
 		},
 		{
@@ -105,6 +106,7 @@ func TestLoadConfig(t *testing.T) {
 				MaxFetchSize:      0,
 				ChannelBufferSize: 1024,
 				MaxProcessingTime: 512 * time.Millisecond,
+				CleanupTimeout:    5 * time.Second,
 			},
 		},
 	}

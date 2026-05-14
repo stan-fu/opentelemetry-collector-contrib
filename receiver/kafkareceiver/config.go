@@ -79,6 +79,11 @@ type Config struct {
 	// Extract headers from kafka records
 	HeaderExtraction HeaderExtraction `mapstructure:"header_extraction"`
 
+	// CustomExtractorName selects which CustomExtractor (registered via
+	// WithLogsCustomExtractor) is invoked for the logs pipeline. When empty
+	// or unmatched a no-op extractor is used.
+	CustomExtractorName string `mapstructure:"custom_extractor"`
+
 	// The minimum bytes per fetch from Kafka (default "1")
 	MinFetchSize int32 `mapstructure:"min_fetch_size"`
 	// The default bytes per fetch from Kafka (default "1048576")
@@ -89,6 +94,13 @@ type Config struct {
 	// sarama.ConsumerConfig
 	ChannelBufferSize int           `mapstructure:"channel_buffer_size"`
 	MaxProcessingTime time.Duration `mapstructure:"max_processing_time"`
+
+	// CleanupTimeout caps how long the receiver waits for in-flight messages
+	// to be acknowledged (via MarkMessage) when a consumer-group session is
+	// being torn down. The wait is best-effort: once the timeout elapses the
+	// receiver continues with the rebalance/shutdown to avoid blocking the
+	// pipeline indefinitely.
+	CleanupTimeout time.Duration `mapstructure:"cleanup_timeout"`
 }
 
 const (

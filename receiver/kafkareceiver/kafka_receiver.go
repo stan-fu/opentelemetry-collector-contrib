@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/IBM/sarama"
 	"go.opentelemetry.io/collector/component"
@@ -32,7 +33,57 @@ const (
 	attrInstanceName = "name"
 	attrPartition    = "partition"
 	attrTopic        = "topic"
+
+	// kafkaMarkMessageCallback is the context key under which the
+	// markMessageCallback for the current Kafka message is stored.
+	kafkaMarkMessageCallback ctxKey = 1
+
+	// AttrKeyRecvTopic / AttrKeyRecvPartition / AttrKeyRecvOffset are log
+	// resource attribute keys used by downstream consumers to correlate logs
+	// back to their source Kafka coordinates.
+	AttrKeyRecvTopic     = "receiver_topic"
+	AttrKeyRecvPartition = "receiver_partition"
+	AttrKeyRecvOffset    = "receiver_offset"
 )
+
+// ctxKey is the unexported type used for context keys defined in this package
+// to avoid collisions with keys defined elsewhere.
+type ctxKey int
+
+// markMessageCallback is the callback type stored in the context under
+// kafkaMarkMessageCallback. Downstream consumers can call MarkMessage(ctx) to
+// trigger this callback once the message has been fully processed, allowing
+// the receiver to mark the message as consumed (commit the offset).
+type markMessageCallback func()
+
+// MarkMessage retrieves the markMessageCallback associated with ctx and
+// invokes it. It is a no-op if ctx does not carry a callback or carries a
+// value of an unexpected type. This indirection lets downstream consumers
+// (e.g. processors with an asynchronous pipeline) defer offset commits until
+// they have actually finished handling the message.
+func MarkMessage(ctx context.Context) {
+	value := ctx.Value(kafkaMarkMessageCallback)
+	if value == nil {
+		return
+	}
+	if cb, ok := value.(markMessageCallback); ok && cb != nil {
+		cb()
+	}
+}
+
+// HandlerHook is an optional plug-in interface that callers can supply via
+// WithTraceConsumerGroupHandlerHook / WithMetricConsumerGroupHandlerHook /
+// WithLogConsumerGroupHandlerHook. The hook receives the same lifecycle
+// callbacks as a sarama.ConsumerGroupHandler, plus Init / Start / Shutdown /
+// Ack so it can participate in the receiver lifecycle and observe per-message
+// acks.
+type HandlerHook interface {
+	sarama.ConsumerGroupHandler
+	Init(Config, receiver.Settings)
+	Start(context.Context, component.Host) error
+	Shutdown(context.Context) error
+	Ack(topic string, partition, offset int64)
+}
 
 var errInvalidInitialOffset = errors.New("invalid initial offset")
 
@@ -56,6 +107,8 @@ type kafkaTracesConsumer struct {
 	minFetchSize      int32
 	defaultFetchSize  int32
 	maxFetchSize      int32
+
+	handlerHook HandlerHook
 }
 
 // kafkaMetricsConsumer uses sarama to consume and handle messages from kafka.
@@ -78,6 +131,8 @@ type kafkaMetricsConsumer struct {
 	minFetchSize      int32
 	defaultFetchSize  int32
 	maxFetchSize      int32
+
+	handlerHook HandlerHook
 }
 
 // kafkaLogsConsumer uses sarama to consume and handle messages from kafka.
@@ -100,6 +155,9 @@ type kafkaLogsConsumer struct {
 	minFetchSize      int32
 	defaultFetchSize  int32
 	maxFetchSize      int32
+
+	handlerHook     HandlerHook
+	customExtractor CustomExtractor
 }
 
 var (
@@ -208,6 +266,10 @@ func (c *kafkaTracesConsumer) Start(_ context.Context, host component.Host) erro
 		messageMarking:    c.messageMarking,
 		headerExtractor:   &nopHeaderExtractor{},
 		telemetryBuilder:  c.telemetryBuilder,
+		delegate:          c.handlerHook,
+	}
+	if c.handlerHook != nil {
+		c.handlerHook.Init(c.config, c.settings)
 	}
 	if c.headerExtraction {
 		consumerGroup.headerExtractor = &headerExtractor{
@@ -218,6 +280,11 @@ func (c *kafkaTracesConsumer) Start(_ context.Context, host component.Host) erro
 	c.consumeLoopWG.Add(1)
 	go c.consumeLoop(ctx, consumerGroup)
 	<-consumerGroup.ready
+	if c.handlerHook != nil {
+		if err := c.handlerHook.Start(ctx, host); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -238,9 +305,12 @@ func (c *kafkaTracesConsumer) consumeLoop(ctx context.Context, handler sarama.Co
 	}
 }
 
-func (c *kafkaTracesConsumer) Shutdown(context.Context) error {
+func (c *kafkaTracesConsumer) Shutdown(ctx context.Context) error {
 	if c.cancelConsumeLoop == nil {
 		return nil
+	}
+	if c.handlerHook != nil {
+		_ = c.handlerHook.Shutdown(ctx)
 	}
 	c.cancelConsumeLoop()
 	c.consumeLoopWG.Wait()
@@ -316,6 +386,10 @@ func (c *kafkaMetricsConsumer) Start(_ context.Context, host component.Host) err
 		messageMarking:    c.messageMarking,
 		headerExtractor:   &nopHeaderExtractor{},
 		telemetryBuilder:  c.telemetryBuilder,
+		delegate:          c.handlerHook,
+	}
+	if c.handlerHook != nil {
+		c.handlerHook.Init(c.config, c.settings)
 	}
 	if c.headerExtraction {
 		metricsConsumerGroup.headerExtractor = &headerExtractor{
@@ -326,6 +400,11 @@ func (c *kafkaMetricsConsumer) Start(_ context.Context, host component.Host) err
 	c.consumeLoopWG.Add(1)
 	go c.consumeLoop(ctx, metricsConsumerGroup)
 	<-metricsConsumerGroup.ready
+	if c.handlerHook != nil {
+		if err := c.handlerHook.Start(ctx, host); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -346,9 +425,12 @@ func (c *kafkaMetricsConsumer) consumeLoop(ctx context.Context, handler sarama.C
 	}
 }
 
-func (c *kafkaMetricsConsumer) Shutdown(context.Context) error {
+func (c *kafkaMetricsConsumer) Shutdown(ctx context.Context) error {
 	if c.cancelConsumeLoop == nil {
 		return nil
+	}
+	if c.handlerHook != nil {
+		_ = c.handlerHook.Shutdown(ctx)
 	}
 	c.cancelConsumeLoop()
 	c.consumeLoopWG.Wait()
@@ -427,6 +509,15 @@ func (c *kafkaLogsConsumer) Start(_ context.Context, host component.Host) error 
 		messageMarking:    c.messageMarking,
 		headerExtractor:   &nopHeaderExtractor{},
 		telemetryBuilder:  c.telemetryBuilder,
+		customExtractor:   c.customExtractor,
+		delegate:          c.handlerHook,
+		cleanupTimeout:    c.config.CleanupTimeout,
+	}
+	if logsConsumerGroup.customExtractor == nil {
+		logsConsumerGroup.customExtractor = &noCustomExtractor{}
+	}
+	if c.handlerHook != nil {
+		c.handlerHook.Init(c.config, c.settings)
 	}
 	if c.headerExtraction {
 		logsConsumerGroup.headerExtractor = &headerExtractor{
@@ -437,6 +528,11 @@ func (c *kafkaLogsConsumer) Start(_ context.Context, host component.Host) error 
 	c.consumeLoopWG.Add(1)
 	go c.consumeLoop(ctx, logsConsumerGroup)
 	<-logsConsumerGroup.ready
+	if c.handlerHook != nil {
+		if err := c.handlerHook.Start(ctx, host); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -457,9 +553,12 @@ func (c *kafkaLogsConsumer) consumeLoop(ctx context.Context, handler sarama.Cons
 	}
 }
 
-func (c *kafkaLogsConsumer) Shutdown(context.Context) error {
+func (c *kafkaLogsConsumer) Shutdown(ctx context.Context) error {
 	if c.cancelConsumeLoop == nil {
 		return nil
+	}
+	if c.handlerHook != nil {
+		_ = c.handlerHook.Shutdown(ctx)
 	}
 	c.cancelConsumeLoop()
 	c.consumeLoopWG.Wait()
@@ -484,6 +583,8 @@ type tracesConsumerGroupHandler struct {
 	autocommitEnabled bool
 	messageMarking    MessageMarking
 	headerExtractor   HeaderExtractor
+
+	delegate HandlerHook
 }
 
 type metricsConsumerGroupHandler struct {
@@ -501,6 +602,8 @@ type metricsConsumerGroupHandler struct {
 	autocommitEnabled bool
 	messageMarking    MessageMarking
 	headerExtractor   HeaderExtractor
+
+	delegate HandlerHook
 }
 
 type logsConsumerGroupHandler struct {
@@ -518,6 +621,17 @@ type logsConsumerGroupHandler struct {
 	autocommitEnabled bool
 	messageMarking    MessageMarking
 	headerExtractor   HeaderExtractor
+
+	customExtractor CustomExtractor
+	delegate        HandlerHook
+
+	// consumeWg tracks in-flight messages whose markMessageCallback has not
+	// fired yet. Cleanup waits on this WG (bounded by cleanupTimeout) so
+	// rebalances and shutdown wait for outstanding acks before commits are
+	// finalized. consumeWg is a value (not pointer) so it is reset in lockstep
+	// with the readyCloser sync.Once on every fresh session.
+	consumeWg      sync.WaitGroup
+	cleanupTimeout time.Duration
 }
 
 var (
@@ -686,7 +800,13 @@ func (c *logsConsumerGroupHandler) Setup(session sarama.ConsumerGroupSession) er
 	c.readyCloser.Do(func() {
 		close(c.ready)
 	})
+	// consumeWg is reset on every fresh consumer-group session so that the
+	// previous session's in-flight count cannot leak across rebalances.
+	c.consumeWg = sync.WaitGroup{}
 	c.telemetryBuilder.KafkaReceiverPartitionStart.Add(session.Context(), 1, metric.WithAttributes(attribute.String(attrInstanceName, c.id.String())))
+	if c.delegate != nil {
+		return c.delegate.Setup(session)
+	}
 	return nil
 }
 
@@ -704,11 +824,35 @@ func (c *logsConsumerGroupHandler) Cleanup(session sarama.ConsumerGroupSession) 
 			c.telemetryBuilder.KafkaReceiverOffsetLag.Record(ctx, 0, metric.WithAttributeSet(attrs))
 		}
 	}
+	// Wait for in-flight messages to be acknowledged via MarkMessage, bounded
+	// by cleanupTimeout to avoid blocking indefinitely. cleanupTimeout <= 0
+	// disables the wait (preserving upstream best-effort behavior).
+	if c.cleanupTimeout > 0 {
+		done := make(chan struct{})
+		go func() {
+			c.consumeWg.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(c.cleanupTimeout):
+			c.logger.Warn("cleanup timed out waiting for in-flight messages",
+				zap.Duration("timeout", c.cleanupTimeout))
+		}
+	}
+	if c.delegate != nil {
+		return c.delegate.Cleanup(session)
+	}
 	return nil
 }
 
 func (c *logsConsumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	c.logger.Info("Starting consumer group", zap.String("topic", claim.Topic()), zap.Int32("partition", claim.Partition()))
+	if c.delegate != nil {
+		if err := c.delegate.ConsumeClaim(session, claim); err != nil {
+			return err
+		}
+	}
 	if !c.autocommitEnabled {
 		defer session.Commit()
 	}
@@ -748,17 +892,48 @@ func (c *logsConsumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSess
 				return err
 			}
 			c.headerExtractor.extractHeadersLogs(logs, message)
+			// Custom extractor sees the unmarshaled logs together with the raw
+			// message so it can attach receiver_topic/partition/offset or any
+			// other source-correlation attributes before the next consumer.
+			if c.customExtractor != nil {
+				c.customExtractor.ExtractLogs(ctx, logs, message)
+			}
+
+			// markedAfter prevents double-marking when both the synchronous
+			// after-marking branch and the asynchronous markMessageCallback
+			// might fire for the same message.
+			markedAfter := false
+			markMessage := func() {
+				if markedAfter {
+					return
+				}
+				markedAfter = true
+				session.MarkMessage(message, "")
+				if c.delegate != nil {
+					c.delegate.Ack(message.Topic, int64(message.Partition), message.Offset)
+				}
+				c.consumeWg.Done()
+			}
+			c.consumeWg.Add(1)
+			ctxWithCallback := context.WithValue(session.Context(), kafkaMarkMessageCallback, markMessageCallback(markMessage))
+
 			logRecordCount := logs.LogRecordCount()
-			err = c.nextConsumer.ConsumeLogs(session.Context(), logs)
+			err = c.nextConsumer.ConsumeLogs(ctxWithCallback, logs)
 			c.obsrecv.EndLogsOp(ctx, c.unmarshaler.Encoding(), logRecordCount, err)
 			if err != nil {
 				if c.messageMarking.After && c.messageMarking.OnError {
-					session.MarkMessage(message, "")
+					markMessage()
+				} else {
+					// Drop the wg reservation since no MarkMessage will fire.
+					if !markedAfter {
+						markedAfter = true
+						c.consumeWg.Done()
+					}
 				}
 				return err
 			}
 			if c.messageMarking.After {
-				session.MarkMessage(message, "")
+				markMessage()
 			}
 			if !c.autocommitEnabled {
 				session.Commit()

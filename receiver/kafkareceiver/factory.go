@@ -50,12 +50,48 @@ const (
 
 	defaultChannelBufferSize = 1024
 	defaultMaxProcessingTime = 512 * time.Millisecond
+	defaultCleanupTimeout    = 5 * time.Second
 )
 
 var errUnrecognizedEncoding = errors.New("unrecognized encoding")
 
-// FactoryOption applies changes to kafkaExporterFactory.
+// FactoryOption applies changes to the kafka receiver factory.
 type FactoryOption func(factory *kafkaReceiverFactory)
+
+// WithLogsCustomExtractor registers one or more CustomExtractor implementations
+// that will be invoked for every consumed logs message after unmarshalling. The
+// extractor whose Name() matches Config.CustomExtractorName is selected at
+// runtime; if none matches a no-op extractor is used.
+func WithLogsCustomExtractor(extractors ...CustomExtractor) FactoryOption {
+	return func(factory *kafkaReceiverFactory) {
+		factory.logsExtractors = append(factory.logsExtractors, extractors...)
+	}
+}
+
+// WithTraceConsumerGroupHandlerHook registers a HandlerHook factory for the
+// traces pipeline. The hook is created once per receiver Start and receives
+// lifecycle events plus per-message Ack callbacks.
+func WithTraceConsumerGroupHandlerHook(hookFactory func() HandlerHook) FactoryOption {
+	return func(factory *kafkaReceiverFactory) {
+		factory.traceHandlerHook = hookFactory
+	}
+}
+
+// WithMetricConsumerGroupHandlerHook registers a HandlerHook factory for the
+// metrics pipeline.
+func WithMetricConsumerGroupHandlerHook(hookFactory func() HandlerHook) FactoryOption {
+	return func(factory *kafkaReceiverFactory) {
+		factory.metricHandlerHook = hookFactory
+	}
+}
+
+// WithLogConsumerGroupHandlerHook registers a HandlerHook factory for the logs
+// pipeline.
+func WithLogConsumerGroupHandlerHook(hookFactory func() HandlerHook) FactoryOption {
+	return func(factory *kafkaReceiverFactory) {
+		factory.logHandlerHook = hookFactory
+	}
+}
 
 // NewFactory creates Kafka receiver factory.
 func NewFactory(options ...FactoryOption) receiver.Factory {
@@ -104,10 +140,40 @@ func createDefaultConfig() component.Config {
 		MaxFetchSize:      defaultMaxFetchSize,
 		ChannelBufferSize: defaultChannelBufferSize,
 		MaxProcessingTime: defaultMaxProcessingTime,
+		CleanupTimeout:    defaultCleanupTimeout,
 	}
 }
 
-type kafkaReceiverFactory struct{}
+type kafkaReceiverFactory struct {
+	logsExtractors    []CustomExtractor
+	traceHandlerHook  func() HandlerHook
+	metricHandlerHook func() HandlerHook
+	logHandlerHook    func() HandlerHook
+}
+
+// pickHook returns hookFactory() if non-nil, otherwise returns nil. Receivers
+// must tolerate a nil hook.
+func pickHook(hookFactory func() HandlerHook) HandlerHook {
+	if hookFactory == nil {
+		return nil
+	}
+	return hookFactory()
+}
+
+// pickLogsExtractor selects the registered CustomExtractor whose Name matches
+// the configured custom_extractor name. When no name is configured or no
+// extractor matches, a no-op extractor is returned so callers can always
+// dereference the result safely.
+func (f *kafkaReceiverFactory) pickLogsExtractor(name string) CustomExtractor {
+	if name != "" {
+		for _, ex := range f.logsExtractors {
+			if ex.Name() == name {
+				return ex
+			}
+		}
+	}
+	return &noCustomExtractor{}
+}
 
 func (f *kafkaReceiverFactory) createTracesReceiver(
 	_ context.Context,
@@ -124,6 +190,7 @@ func (f *kafkaReceiverFactory) createTracesReceiver(
 	if err != nil {
 		return nil, err
 	}
+	r.handlerHook = pickHook(f.traceHandlerHook)
 	return r, nil
 }
 
@@ -142,6 +209,7 @@ func (f *kafkaReceiverFactory) createMetricsReceiver(
 	if err != nil {
 		return nil, err
 	}
+	r.handlerHook = pickHook(f.metricHandlerHook)
 	return r, nil
 }
 
@@ -160,6 +228,8 @@ func (f *kafkaReceiverFactory) createLogsReceiver(
 	if err != nil {
 		return nil, err
 	}
+	r.handlerHook = pickHook(f.logHandlerHook)
+	r.customExtractor = f.pickLogsExtractor(oCfg.CustomExtractorName)
 	return r, nil
 }
 
