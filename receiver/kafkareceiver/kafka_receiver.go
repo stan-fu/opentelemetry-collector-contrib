@@ -108,7 +108,8 @@ type kafkaTracesConsumer struct {
 	defaultFetchSize  int32
 	maxFetchSize      int32
 
-	handlerHook HandlerHook
+	handlerHook       HandlerHook
+	extraUnmarshalers map[string]TracesUnmarshaler
 }
 
 // kafkaMetricsConsumer uses sarama to consume and handle messages from kafka.
@@ -132,7 +133,8 @@ type kafkaMetricsConsumer struct {
 	defaultFetchSize  int32
 	maxFetchSize      int32
 
-	handlerHook HandlerHook
+	handlerHook       HandlerHook
+	extraUnmarshalers map[string]MetricsUnmarshaler
 }
 
 // kafkaLogsConsumer uses sarama to consume and handle messages from kafka.
@@ -156,8 +158,9 @@ type kafkaLogsConsumer struct {
 	defaultFetchSize  int32
 	maxFetchSize      int32
 
-	handlerHook     HandlerHook
-	customExtractor CustomExtractor
+	handlerHook       HandlerHook
+	customExtractor   CustomExtractor
+	extraUnmarshalers map[string]LogsUnmarshaler
 }
 
 var (
@@ -243,6 +246,9 @@ func (c *kafkaTracesConsumer) Start(_ context.Context, host component.Host) erro
 			unmarshaler: *unmarshaler,
 			encoding:    c.config.Encoding,
 		}
+	}
+	if unmarshaler, ok := c.extraUnmarshalers[c.config.Encoding]; c.unmarshaler == nil && ok {
+		c.unmarshaler = unmarshaler
 	}
 	if unmarshaler, ok := defaultTracesUnmarshalers()[c.config.Encoding]; c.unmarshaler == nil && ok {
 		c.unmarshaler = unmarshaler
@@ -364,6 +370,9 @@ func (c *kafkaMetricsConsumer) Start(_ context.Context, host component.Host) err
 			encoding:    c.config.Encoding,
 		}
 	}
+	if unmarshaler, ok := c.extraUnmarshalers[c.config.Encoding]; c.unmarshaler == nil && ok {
+		c.unmarshaler = unmarshaler
+	}
 	if unmarshaler, ok := defaultMetricsUnmarshalers()[c.config.Encoding]; c.unmarshaler == nil && ok {
 		c.unmarshaler = unmarshaler
 	}
@@ -483,6 +492,9 @@ func (c *kafkaLogsConsumer) Start(_ context.Context, host component.Host) error 
 			unmarshaler: *unmarshaler,
 			encoding:    c.config.Encoding,
 		}
+	}
+	if unmarshaler, ok := c.extraUnmarshalers[c.config.Encoding]; c.unmarshaler == nil && ok {
+		c.unmarshaler = unmarshaler
 	}
 	if unmarshaler, errInt := getLogsUnmarshaler(
 		c.config.Encoding,

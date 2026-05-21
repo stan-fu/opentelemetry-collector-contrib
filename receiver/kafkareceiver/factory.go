@@ -58,6 +58,51 @@ var errUnrecognizedEncoding = errors.New("unrecognized encoding")
 // FactoryOption applies changes to the kafka receiver factory.
 type FactoryOption func(factory *kafkaReceiverFactory)
 
+// WithTracesUnmarshalers registers one or more TracesUnmarshaler implementations
+// that augment the receiver's internal default unmarshalers. The traces
+// pipeline picks a marshaler whose Encoding() matches Config.Encoding before
+// falling back to encoding extensions or built-in defaults.
+func WithTracesUnmarshalers(tracesUnmarshalers ...TracesUnmarshaler) FactoryOption {
+	return func(factory *kafkaReceiverFactory) {
+		if factory.tracesUnmarshalers == nil {
+			factory.tracesUnmarshalers = map[string]TracesUnmarshaler{}
+		}
+		for _, um := range tracesUnmarshalers {
+			factory.tracesUnmarshalers[um.Encoding()] = um
+		}
+	}
+}
+
+// WithMetricsUnmarshalers registers one or more MetricsUnmarshaler implementations
+// that augment the receiver's internal default unmarshalers. The metrics
+// pipeline picks a marshaler whose Encoding() matches Config.Encoding before
+// falling back to encoding extensions or built-in defaults.
+func WithMetricsUnmarshalers(metricsUnmarshalers ...MetricsUnmarshaler) FactoryOption {
+	return func(factory *kafkaReceiverFactory) {
+		if factory.metricsUnmarshalers == nil {
+			factory.metricsUnmarshalers = map[string]MetricsUnmarshaler{}
+		}
+		for _, um := range metricsUnmarshalers {
+			factory.metricsUnmarshalers[um.Encoding()] = um
+		}
+	}
+}
+
+// WithLogsUnmarshalers registers one or more LogsUnmarshaler implementations
+// that augment the receiver's internal default unmarshalers. The logs pipeline
+// picks a marshaler whose Encoding() matches Config.Encoding before falling
+// back to encoding extensions or built-in defaults.
+func WithLogsUnmarshalers(logsUnmarshalers ...LogsUnmarshaler) FactoryOption {
+	return func(factory *kafkaReceiverFactory) {
+		if factory.logsUnmarshalers == nil {
+			factory.logsUnmarshalers = map[string]LogsUnmarshaler{}
+		}
+		for _, um := range logsUnmarshalers {
+			factory.logsUnmarshalers[um.Encoding()] = um
+		}
+	}
+}
+
 // WithLogsCustomExtractor registers one or more CustomExtractor implementations
 // that will be invoked for every consumed logs message after unmarshalling. The
 // extractor whose Name() matches Config.CustomExtractorName is selected at
@@ -149,6 +194,10 @@ type kafkaReceiverFactory struct {
 	traceHandlerHook  func() HandlerHook
 	metricHandlerHook func() HandlerHook
 	logHandlerHook    func() HandlerHook
+
+	tracesUnmarshalers  map[string]TracesUnmarshaler
+	metricsUnmarshalers map[string]MetricsUnmarshaler
+	logsUnmarshalers    map[string]LogsUnmarshaler
 }
 
 // pickHook returns hookFactory() if non-nil, otherwise returns nil. Receivers
@@ -191,6 +240,7 @@ func (f *kafkaReceiverFactory) createTracesReceiver(
 		return nil, err
 	}
 	r.handlerHook = pickHook(f.traceHandlerHook)
+	r.extraUnmarshalers = f.tracesUnmarshalers
 	return r, nil
 }
 
@@ -210,6 +260,7 @@ func (f *kafkaReceiverFactory) createMetricsReceiver(
 		return nil, err
 	}
 	r.handlerHook = pickHook(f.metricHandlerHook)
+	r.extraUnmarshalers = f.metricsUnmarshalers
 	return r, nil
 }
 
@@ -230,6 +281,7 @@ func (f *kafkaReceiverFactory) createLogsReceiver(
 	}
 	r.handlerHook = pickHook(f.logHandlerHook)
 	r.customExtractor = f.pickLogsExtractor(oCfg.CustomExtractorName)
+	r.extraUnmarshalers = f.logsUnmarshalers
 	return r, nil
 }
 
