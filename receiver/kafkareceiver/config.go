@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/confmap"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/kafkaexporter"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/kafka"
@@ -109,6 +110,16 @@ const (
 )
 
 var _ component.Config = (*Config)(nil)
+
+// UnmarshalAuth decodes a configuration map into the receiver's Authentication
+// section. It mirrors the helper that existed in upstream <= v0.108 and is
+// retained here for downstream code that programmatically injects credentials
+// (e.g. fetched from a secret manager) into a kafkareceiver.Config without
+// going through the full confmap round-trip.
+func (cfg *Config) UnmarshalAuth(authRaw map[string]any) error {
+	conf := confmap.NewFromStringMap(authRaw)
+	return conf.Unmarshal(&cfg.Authentication)
+}
 
 // Validate checks the receiver configuration is valid
 func (cfg *Config) Validate() error {
