@@ -274,6 +274,7 @@ func TestTracesConsumerGroupHandler_error_unmarshal(t *testing.T) {
 			Value: 3,
 			Attributes: attribute.NewSet(
 				attribute.String("name", ""),
+				attribute.String("topic", testTopic),
 				attribute.String("partition", "5"),
 			),
 		},
@@ -283,6 +284,7 @@ func TestTracesConsumerGroupHandler_error_unmarshal(t *testing.T) {
 			Value: 0,
 			Attributes: attribute.NewSet(
 				attribute.String("name", ""),
+				attribute.String("topic", testTopic),
 				attribute.String("partition", "5"),
 			),
 		},
@@ -292,6 +294,7 @@ func TestTracesConsumerGroupHandler_error_unmarshal(t *testing.T) {
 			Value: 1,
 			Attributes: attribute.NewSet(
 				attribute.String("name", ""),
+				attribute.String("topic", testTopic),
 				attribute.String("partition", "5"),
 			),
 		},
@@ -584,6 +587,7 @@ func TestMetricsConsumerGroupHandler_error_unmarshal(t *testing.T) {
 			Value: 3,
 			Attributes: attribute.NewSet(
 				attribute.String("name", ""),
+				attribute.String("topic", testTopic),
 				attribute.String("partition", "5"),
 			),
 		},
@@ -593,6 +597,7 @@ func TestMetricsConsumerGroupHandler_error_unmarshal(t *testing.T) {
 			Value: 0,
 			Attributes: attribute.NewSet(
 				attribute.String("name", ""),
+				attribute.String("topic", testTopic),
 				attribute.String("partition", "5"),
 			),
 		},
@@ -602,6 +607,7 @@ func TestMetricsConsumerGroupHandler_error_unmarshal(t *testing.T) {
 			Value: 1,
 			Attributes: attribute.NewSet(
 				attribute.String("name", ""),
+				attribute.String("topic", testTopic),
 				attribute.String("partition", "5"),
 			),
 		},
@@ -803,6 +809,7 @@ func TestLogsConsumerGroupHandler(t *testing.T) {
 		obsrecv:          obsrecv,
 		headerExtractor:  &nopHeaderExtractor{},
 		telemetryBuilder: telemetryBuilder,
+		customExtractor:  &noCustomExtractor{},
 	}
 
 	testSession := testConsumerGroupSession{ctx: context.Background()}
@@ -846,6 +853,7 @@ func TestLogsConsumerGroupHandler_session_done(t *testing.T) {
 		obsrecv:          obsrecv,
 		headerExtractor:  &nopHeaderExtractor{},
 		telemetryBuilder: telemetryBuilder,
+		customExtractor:  &noCustomExtractor{},
 	}
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
@@ -889,6 +897,7 @@ func TestLogsConsumerGroupHandler_error_unmarshal(t *testing.T) {
 		obsrecv:          obsrecv,
 		headerExtractor:  &nopHeaderExtractor{},
 		telemetryBuilder: telemetryBuilder,
+		customExtractor:  &noCustomExtractor{},
 	}
 
 	wg := sync.WaitGroup{}
@@ -909,6 +918,7 @@ func TestLogsConsumerGroupHandler_error_unmarshal(t *testing.T) {
 			Value: 3,
 			Attributes: attribute.NewSet(
 				attribute.String("name", ""),
+				attribute.String("topic", testTopic),
 				attribute.String("partition", "5"),
 			),
 		},
@@ -918,6 +928,7 @@ func TestLogsConsumerGroupHandler_error_unmarshal(t *testing.T) {
 			Value: 0,
 			Attributes: attribute.NewSet(
 				attribute.String("name", ""),
+				attribute.String("topic", testTopic),
 				attribute.String("partition", "5"),
 			),
 		},
@@ -927,6 +938,7 @@ func TestLogsConsumerGroupHandler_error_unmarshal(t *testing.T) {
 			Value: 1,
 			Attributes: attribute.NewSet(
 				attribute.String("name", ""),
+				attribute.String("topic", testTopic),
 				attribute.String("partition", "5"),
 			),
 		},
@@ -953,6 +965,7 @@ func TestLogsConsumerGroupHandler_error_nextConsumer(t *testing.T) {
 		obsrecv:          obsrecv,
 		headerExtractor:  &nopHeaderExtractor{},
 		telemetryBuilder: nopTelemetryBuilder(t),
+		customExtractor:  &noCustomExtractor{},
 	}
 
 	wg := sync.WaitGroup{}
@@ -1025,6 +1038,7 @@ func TestLogsConsumerGroupHandler_unmarshal_text(t *testing.T) {
 				obsrecv:          obsrecv,
 				headerExtractor:  &nopHeaderExtractor{},
 				telemetryBuilder: nopTelemetryBuilder(t),
+				customExtractor:  &noCustomExtractor{},
 			}
 
 			wg := sync.WaitGroup{}

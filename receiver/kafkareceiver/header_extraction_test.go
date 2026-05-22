@@ -104,6 +104,7 @@ func TestHeaderExtractionLogs(t *testing.T) {
 		nextConsumer:     nextConsumer,
 		obsrecv:          obsrecv,
 		telemetryBuilder: telemetryBuilder,
+		customExtractor:  &noCustomExtractor{},
 	}
 	headers := []string{"headerKey1", "headerKey2"}
 	c.headerExtractor = &headerExtractor{

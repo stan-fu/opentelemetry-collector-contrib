@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/IBM/sarama"
@@ -704,6 +705,7 @@ func (c *tracesConsumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSe
 			ctx := c.obsrecv.StartTracesOp(session.Context())
 			attrs := attribute.NewSet(
 				attribute.String(attrInstanceName, c.id.String()),
+				attribute.String(attrTopic, claim.Topic()),
 				attribute.String(attrPartition, strconv.Itoa(int(claim.Partition()))),
 			)
 			c.telemetryBuilder.KafkaReceiverMessages.Add(ctx, 1, metric.WithAttributeSet(attrs))
@@ -782,6 +784,7 @@ func (c *metricsConsumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupS
 			ctx := c.obsrecv.StartMetricsOp(session.Context())
 			attrs := attribute.NewSet(
 				attribute.String(attrInstanceName, c.id.String()),
+				attribute.String(attrTopic, claim.Topic()),
 				attribute.String(attrPartition, strconv.Itoa(int(claim.Partition()))),
 			)
 			c.telemetryBuilder.KafkaReceiverMessages.Add(ctx, 1, metric.WithAttributeSet(attrs))
@@ -902,6 +905,7 @@ func (c *logsConsumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSess
 			ctx := c.obsrecv.StartLogsOp(session.Context())
 			attrs := attribute.NewSet(
 				attribute.String(attrInstanceName, c.id.String()),
+				attribute.String(attrTopic, claim.Topic()),
 				attribute.String(attrPartition, strconv.Itoa(int(claim.Partition()))),
 			)
 			c.telemetryBuilder.KafkaReceiverMessages.Add(ctx, 1, metric.WithAttributeSet(attrs))
@@ -919,48 +923,49 @@ func (c *logsConsumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSess
 				return err
 			}
 			c.headerExtractor.extractHeadersLogs(logs, message)
-			// Custom extractor sees the unmarshaled logs together with the raw
-			// message so it can attach receiver_topic/partition/offset or any
-			// other source-correlation attributes before the next consumer.
-			if c.customExtractor != nil {
-				c.customExtractor.ExtractLogs(ctx, logs, message)
+			// CustomExtractor sees the unmarshaled logs together with the raw
+			// message so it can attach receiver-specific attributes before
+			// they leave the receiver. customExtractor is guaranteed non-nil
+			// by the factory (defaulting to noCustomExtractor).
+			c.customExtractor.ExtractLogs(session.Context(), logs, message)
+
+			// Attach the source kafka coordinates to every resource log so
+			// downstream consumers (routing processors, exporters with
+			// per-partition state, etc.) can correlate records back to their
+			// origin without re-parsing the raw message.
+			topic := message.Topic
+			partition := int64(message.Partition)
+			offset := message.Offset
+			resourceLogs := logs.ResourceLogs()
+			for i := 0; i < resourceLogs.Len(); i++ {
+				attributes := resourceLogs.At(i).Resource().Attributes()
+				attributes.PutStr(AttrKeyRecvTopic, topic)
+				attributes.PutInt(AttrKeyRecvPartition, partition)
+				attributes.PutInt(AttrKeyRecvOffset, offset)
 			}
 
-			// markedAfter prevents double-marking when both the synchronous
-			// after-marking branch and the asynchronous markMessageCallback
-			// might fire for the same message.
-			markedAfter := false
-			markMessage := func() {
-				if markedAfter {
-					return
-				}
-				markedAfter = true
-				session.MarkMessage(message, "")
-				if c.delegate != nil {
-					c.delegate.Ack(message.Topic, int64(message.Partition), message.Offset)
-				}
-				c.consumeWg.Done()
-			}
+			// ackDone guards both the wg.Done and the delegate.Ack so a
+			// downstream pipeline that mistakenly invokes the callback more
+			// than once cannot drive consumeWg below zero or double-ack.
+			var ackDone atomic.Bool
 			c.consumeWg.Add(1)
-			ctxWithCallback := context.WithValue(session.Context(), kafkaMarkMessageCallback, markMessageCallback(markMessage))
-
-			logRecordCount := logs.LogRecordCount()
-			err = c.nextConsumer.ConsumeLogs(ctxWithCallback, logs)
-			c.obsrecv.EndLogsOp(ctx, c.unmarshaler.Encoding(), logRecordCount, err)
+			err = c.nextConsumer.ConsumeLogs(context.WithValue(session.Context(), kafkaMarkMessageCallback, markMessageCallback(func() {
+				if ackDone.CompareAndSwap(false, true) {
+					defer c.consumeWg.Done()
+					if c.delegate != nil {
+						c.delegate.Ack(topic, partition, offset)
+					}
+				}
+			})), logs)
+			c.obsrecv.EndLogsOp(ctx, c.unmarshaler.Encoding(), logs.LogRecordCount(), err)
 			if err != nil {
 				if c.messageMarking.After && c.messageMarking.OnError {
-					markMessage()
-				} else {
-					// Drop the wg reservation since no MarkMessage will fire.
-					if !markedAfter {
-						markedAfter = true
-						c.consumeWg.Done()
-					}
+					session.MarkMessage(message, "")
 				}
 				return err
 			}
 			if c.messageMarking.After {
-				markMessage()
+				session.MarkMessage(message, "")
 			}
 			if !c.autocommitEnabled {
 				session.Commit()
@@ -970,6 +975,7 @@ func (c *logsConsumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSess
 		// If not, will raise `ErrRebalanceInProgress` or `read tcp <ip>:<port>: i/o timeout` when kafka rebalance. see:
 		// https://github.com/IBM/sarama/issues/1192
 		case <-session.Context().Done():
+			c.logger.Info("[shutdown] ConsumeClaim session context done")
 			return nil
 		}
 	}
