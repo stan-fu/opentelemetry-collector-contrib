@@ -655,8 +655,10 @@ type logsConsumerGroupHandler struct {
 	// consumeWg tracks in-flight messages whose markMessageCallback has not
 	// fired yet. Cleanup waits on this WG (bounded by cleanupTimeout) so
 	// rebalances and shutdown wait for outstanding acks before commits are
-	// finalized. consumeWg is a value (not pointer) so it is reset in lockstep
-	// with the readyCloser sync.Once on every fresh session.
+	// finalized. The reset is scoped to readyCloser.Do (i.e. once per handler
+	// lifetime) on purpose: per-session reset would lose pending Add(1) from
+	// the previous session and the eventual asynchronous Done() would drive
+	// the counter negative, panicking the consumer.
 	consumeWg      sync.WaitGroup
 	cleanupTimeout time.Duration
 }
@@ -826,10 +828,8 @@ func (c *metricsConsumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupS
 func (c *logsConsumerGroupHandler) Setup(session sarama.ConsumerGroupSession) error {
 	c.readyCloser.Do(func() {
 		close(c.ready)
+		c.consumeWg = sync.WaitGroup{}
 	})
-	// consumeWg is reset on every fresh consumer-group session so that the
-	// previous session's in-flight count cannot leak across rebalances.
-	c.consumeWg = sync.WaitGroup{}
 	c.telemetryBuilder.KafkaReceiverPartitionStart.Add(session.Context(), 1, metric.WithAttributes(attribute.String(attrInstanceName, c.id.String())))
 	if c.delegate != nil {
 		return c.delegate.Setup(session)
