@@ -585,6 +585,8 @@ func (c *kafkaLogsConsumer) Shutdown(ctx context.Context) error {
 	if c.cancelConsumeLoop == nil {
 		return nil
 	}
+	now := time.Now()
+	c.settings.Logger.Info("[shutdown] Start closing consumer group", zap.String("topic", c.config.Topic))
 	if c.handlerHook != nil {
 		_ = c.handlerHook.Shutdown(ctx)
 	}
@@ -593,6 +595,7 @@ func (c *kafkaLogsConsumer) Shutdown(ctx context.Context) error {
 	if c.consumerGroup == nil {
 		return nil
 	}
+	c.settings.Logger.Info("[shutdown] End closing consumer group", zap.String("topic", c.config.Topic), zap.Int64("elapse(ms)", time.Since(now).Milliseconds()))
 	return c.consumerGroup.Close()
 }
 
@@ -858,6 +861,8 @@ func (c *logsConsumerGroupHandler) Cleanup(session sarama.ConsumerGroupSession) 
 	// by cleanupTimeout to avoid blocking indefinitely. cleanupTimeout <= 0
 	// disables the wait (preserving upstream best-effort behavior).
 	if c.cleanupTimeout > 0 {
+		now := time.Now()
+		c.logger.Info("[Cleanup] Closing consumer group handler")
 		done := make(chan struct{})
 		go func() {
 			c.consumeWg.Wait()
@@ -865,9 +870,9 @@ func (c *logsConsumerGroupHandler) Cleanup(session sarama.ConsumerGroupSession) 
 		}()
 		select {
 		case <-done:
+			c.logger.Info("[Cleanup] Closing consumer group handler end", zap.Duration("duration", time.Since(now)))
 		case <-time.After(c.cleanupTimeout):
-			c.logger.Warn("cleanup timed out waiting for in-flight messages",
-				zap.Duration("timeout", c.cleanupTimeout))
+			c.logger.Warn("[Cleanup] Timed out waiting for consumer group handler to close", zap.Duration("duration", time.Since(now)))
 		}
 	}
 	if c.delegate != nil {
