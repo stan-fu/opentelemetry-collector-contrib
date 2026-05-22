@@ -276,6 +276,16 @@ func (c *kafkaTracesConsumer) Start(_ context.Context, host component.Host) erro
 	}
 	if c.handlerHook != nil {
 		c.handlerHook.Init(c.config, c.settings)
+		// Start the hook synchronously before spawning consumeLoop so that any
+		// state wired in Start() (e.g. host extensions) is guaranteed to be in
+		// place by the time sarama invokes ConsumerGroupHandler.Setup() on the
+		// delegate. Doing this after `<-ready` races with the wrapper's Setup
+		// (which closes ready *before* calling delegate.Setup), leading to nil
+		// dereferences in HandlerHook implementations.
+		if err := c.handlerHook.Start(ctx, host); err != nil {
+			cancel()
+			return err
+		}
 	}
 	if c.headerExtraction {
 		consumerGroup.headerExtractor = &headerExtractor{
@@ -286,11 +296,6 @@ func (c *kafkaTracesConsumer) Start(_ context.Context, host component.Host) erro
 	c.consumeLoopWG.Add(1)
 	go c.consumeLoop(ctx, consumerGroup)
 	<-consumerGroup.ready
-	if c.handlerHook != nil {
-		if err := c.handlerHook.Start(ctx, host); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -399,6 +404,16 @@ func (c *kafkaMetricsConsumer) Start(_ context.Context, host component.Host) err
 	}
 	if c.handlerHook != nil {
 		c.handlerHook.Init(c.config, c.settings)
+		// Start the hook synchronously before spawning consumeLoop so that any
+		// state wired in Start() (e.g. host extensions) is guaranteed to be in
+		// place by the time sarama invokes ConsumerGroupHandler.Setup() on the
+		// delegate. Doing this after `<-ready` races with the wrapper's Setup
+		// (which closes ready *before* calling delegate.Setup), leading to nil
+		// dereferences in HandlerHook implementations.
+		if err := c.handlerHook.Start(ctx, host); err != nil {
+			cancel()
+			return err
+		}
 	}
 	if c.headerExtraction {
 		metricsConsumerGroup.headerExtractor = &headerExtractor{
@@ -409,11 +424,6 @@ func (c *kafkaMetricsConsumer) Start(_ context.Context, host component.Host) err
 	c.consumeLoopWG.Add(1)
 	go c.consumeLoop(ctx, metricsConsumerGroup)
 	<-metricsConsumerGroup.ready
-	if c.handlerHook != nil {
-		if err := c.handlerHook.Start(ctx, host); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -530,6 +540,16 @@ func (c *kafkaLogsConsumer) Start(_ context.Context, host component.Host) error 
 	}
 	if c.handlerHook != nil {
 		c.handlerHook.Init(c.config, c.settings)
+		// Start the hook synchronously before spawning consumeLoop so that any
+		// state wired in Start() (e.g. host extensions) is guaranteed to be in
+		// place by the time sarama invokes ConsumerGroupHandler.Setup() on the
+		// delegate. Doing this after `<-ready` races with the wrapper's Setup
+		// (which closes ready *before* calling delegate.Setup), leading to nil
+		// dereferences in HandlerHook implementations.
+		if err := c.handlerHook.Start(ctx, host); err != nil {
+			cancel()
+			return err
+		}
 	}
 	if c.headerExtraction {
 		logsConsumerGroup.headerExtractor = &headerExtractor{
@@ -540,11 +560,6 @@ func (c *kafkaLogsConsumer) Start(_ context.Context, host component.Host) error 
 	c.consumeLoopWG.Add(1)
 	go c.consumeLoop(ctx, logsConsumerGroup)
 	<-logsConsumerGroup.ready
-	if c.handlerHook != nil {
-		if err := c.handlerHook.Start(ctx, host); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
