@@ -210,12 +210,14 @@ func pickHook(hookFactory func() HandlerHook) HandlerHook {
 }
 
 // pickLogsExtractor selects the registered CustomExtractor whose Name matches
-// the configured custom_extractor name. When no name is configured or no
-// extractor matches, a no-op extractor is returned so callers can always
+// the configured custom_extractor name. Later registrations win, matching the
+// legacy map-based behavior from the v0.108 fork. When no name is configured or
+// no extractor matches, a no-op extractor is returned so callers can always
 // dereference the result safely.
 func (f *kafkaReceiverFactory) pickLogsExtractor(name string) CustomExtractor {
 	if name != "" {
-		for _, ex := range f.logsExtractors {
+		for i := len(f.logsExtractors) - 1; i >= 0; i-- {
+			ex := f.logsExtractors[i]
 			if ex.Name() == name {
 				return ex
 			}
